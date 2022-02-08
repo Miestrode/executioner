@@ -1,9 +1,11 @@
-use std::{fs, io, path::PathBuf};
+use std::{collections::HashSet, fs, io, path::PathBuf};
 
 use rand::prelude::SliceRandom;
 
+use crate::ActiveState;
+
 pub struct Words {
-    words: Vec<String>,
+    pub words: Vec<String>,
 }
 
 impl Words {
@@ -13,7 +15,39 @@ impl Words {
         })
     }
 
-    pub fn random_word(&self) -> &str {
-        self.words.choose(&mut rand::thread_rng()).unwrap()
+    pub fn random_word(&self) -> String {
+        self.words.choose(&mut rand::thread_rng()).unwrap().clone()
+    }
+
+    pub fn satisfiable_portion(&self, state: &ActiveState) -> f64 {
+        self.words
+            .iter()
+            .filter(|&word| state.does_match(word))
+            .count() as f64
+            / (self.words.len() as f64)
+    }
+
+    pub fn filter_with_guess(&mut self, state: &ActiveState) {
+        self.words = self
+            .words
+            .drain(..)
+            .filter(|word| state.does_match(word))
+            .collect();
+    }
+}
+
+pub trait UniqueLetters {
+    fn unique_letters(&self) -> HashSet<char>;
+}
+
+impl UniqueLetters for String {
+    fn unique_letters(&self) -> HashSet<char> {
+        let mut letters = HashSet::new();
+
+        for character in self.chars() {
+            letters.insert(character);
+        }
+
+        letters
     }
 }

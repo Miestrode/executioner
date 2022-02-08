@@ -9,8 +9,9 @@ impl Guess for PlayerGuesser {
     fn guess(&mut self, state: &ActiveState) -> char {
         println!("{}", state.guess);
         println!(
-            "You have {} live(s) | Already guessed: {}",
+            "You have {} {} left | Already guessed: {}",
             state.lives,
+            if state.lives == 1 { "try" } else { "tries" },
             if state.wrong_characters.len() == 0 {
                 String::from("None")
             } else {
@@ -23,12 +24,13 @@ impl Guess for PlayerGuesser {
                     .join(", ")
             }
         );
-        print!("Enter a character to guess: ");
-        io::stdout()
-            .flush()
-            .expect("could not flush text to standard output.");
 
         loop {
+            print!("Enter a character to guess: ");
+            io::stdout()
+                .flush()
+                .expect("could not flush text to standard output.");
+
             let mut buffer = String::new();
 
             match io::stdin().read_line(&mut buffer) {
@@ -38,6 +40,7 @@ impl Guess for PlayerGuesser {
                     if buffer.len() != 1 {
                         println!("Please enter a single character.")
                     } else {
+                        println!(); // This is done to space out the different guess attempts.
                         break buffer.chars().next().unwrap();
                     }
                 }

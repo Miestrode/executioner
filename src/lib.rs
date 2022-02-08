@@ -17,6 +17,29 @@ enum Letter {
 #[derive(Clone)]
 pub struct GuessState(Vec<Letter>);
 
+impl<'a> ActiveState<'a> {
+    pub fn does_match(&self, word: &str) -> bool {
+        for character in word.chars() {
+            if self.wrong_characters.contains(&character) {
+                return false;
+            }
+        }
+
+        if self.guess.0.len() != word.len() {
+            false
+        } else {
+            self.guess
+                .0
+                .iter()
+                .zip(word.chars())
+                .all(|(guess_letter, word_letter)| match guess_letter {
+                    Letter::Unknown => true,
+                    &Letter::Character(guess_letter) => guess_letter == word_letter,
+                })
+        }
+    }
+}
+
 pub struct ActiveState<'a> {
     guess: &'a GuessState,
     lives: u32,
@@ -90,11 +113,9 @@ impl Display for GuessState {
             f.write_char(if let Letter::Character(character) = letter {
                 character
             } else {
-                '⬛'
+                '_'
             })?;
         }
-
-        writeln!(f)?;
 
         fmt::Result::Ok(())
     }
