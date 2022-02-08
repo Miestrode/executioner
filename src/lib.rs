@@ -72,7 +72,7 @@ impl<'a> Game<'a> {
     fn game_state(&self) -> GameState {
         if self.lives == 0 {
             GameState::Done { success: false }
-        } else if self.guess_state.0.contains(&Letter::Unknown) {
+        } else if !self.guess_state.0.contains(&Letter::Unknown) {
             GameState::Done { success: true }
         } else {
             GameState::Active(ActiveState {

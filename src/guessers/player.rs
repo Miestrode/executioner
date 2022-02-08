@@ -1,5 +1,5 @@
 use crate::ActiveState;
-use std::io;
+use std::io::{self, Write};
 
 use super::Guess;
 
@@ -11,22 +11,31 @@ impl Guess for PlayerGuesser {
         println!(
             "You have {} live(s) | Already guessed: {}",
             state.lives,
-            state
-                .wrong_characters
-                .iter()
-                .copied()
-                .map(String::from)
-                .collect::<Vec<_>>()
-                .join(", ")
+            if state.wrong_characters.len() == 0 {
+                String::from("None")
+            } else {
+                state
+                    .wrong_characters
+                    .iter()
+                    .copied()
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
         );
-        println!("Enter a character to guess: ");
+        print!("Enter a character to guess: ");
+        io::stdout()
+            .flush()
+            .expect("could not flush text to standard output.");
 
         loop {
             let mut buffer = String::new();
 
             match io::stdin().read_line(&mut buffer) {
-                Ok(length) => {
-                    if length != 1 {
+                Ok(_) => {
+                    let buffer = buffer.trim();
+
+                    if buffer.len() != 1 {
                         println!("Please enter a single character.")
                     } else {
                         break buffer.chars().next().unwrap();
