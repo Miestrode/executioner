@@ -1,22 +1,22 @@
 use crate::ActiveState;
 use std::io::{self, Write};
 
-use super::Guess;
+use super::Guesser;
 
 pub struct PlayerGuesser;
 
-impl Guess for PlayerGuesser {
+impl Guesser for PlayerGuesser {
     fn guess(&mut self, state: &ActiveState) -> char {
         println!("{}", state.guess);
         println!(
             "You have {} {} left | Already guessed: {}",
             state.lives,
             if state.lives == 1 { "try" } else { "tries" },
-            if state.wrong_characters.len() == 0 {
+            if state.wrong.len() == 0 {
                 String::from("None")
             } else {
                 state
-                    .wrong_characters
+                    .wrong
                     .iter()
                     .copied()
                     .map(String::from)

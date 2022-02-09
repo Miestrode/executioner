@@ -1,7 +1,7 @@
 pub mod guessers;
 pub mod words;
 
-use guessers::Guess;
+use guessers::Guesser;
 
 use std::{
     collections::HashSet,
@@ -20,7 +20,7 @@ pub struct GuessState(Vec<Letter>);
 impl<'a> ActiveState<'a> {
     pub fn does_match(&self, word: &str) -> bool {
         for character in word.chars() {
-            if self.wrong_characters.contains(&character) {
+            if self.wrong.contains(&character) {
                 return false;
             }
         }
@@ -43,7 +43,7 @@ impl<'a> ActiveState<'a> {
 pub struct ActiveState<'a> {
     guess: &'a GuessState,
     lives: u32,
-    wrong_characters: &'a HashSet<char>,
+    wrong: &'a HashSet<char>,
 }
 
 enum GameState<'a> {
@@ -54,7 +54,7 @@ enum GameState<'a> {
 pub struct Game<'a> {
     word: &'a str,
     guess_state: GuessState,
-    wrong_characters: HashSet<char>,
+    wrong: HashSet<char>,
     lives: u32,
 }
 
@@ -63,12 +63,12 @@ impl<'a> Game<'a> {
         Self {
             guess_state: GuessState(vec![Letter::Unknown; word.len()]),
             word,
-            wrong_characters: HashSet::new(),
+            wrong: HashSet::new(),
             lives,
         }
     }
 
-    pub fn play(&mut self, mut guesser: impl Guess) -> bool {
+    pub fn play(&mut self, mut guesser: impl Guesser) -> bool {
         loop {
             match &self.game_state() {
                 GameState::Active(state) => {
@@ -88,7 +88,7 @@ impl<'a> Game<'a> {
             }
         } else {
             self.lives = self.lives.saturating_sub(1);
-            self.wrong_characters.insert(character);
+            self.wrong.insert(character);
         }
     }
 
@@ -101,7 +101,7 @@ impl<'a> Game<'a> {
             GameState::Active(ActiveState {
                 lives: self.lives,
                 guess: &self.guess_state,
-                wrong_characters: &self.wrong_characters,
+                wrong: &self.wrong,
             })
         }
     }
@@ -110,10 +110,10 @@ impl<'a> Game<'a> {
 impl Display for GuessState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         for &letter in &self.0 {
-            f.write_char(if let Letter::Character(character) = letter {
-                character
+            f.write_char(if let Letter::Character(_) = letter {
+                '🟩'
             } else {
-                '_'
+                '⬛'
             })?;
         }
 

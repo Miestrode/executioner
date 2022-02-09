@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use yansi::Color;
+
 use crate::{
     words::{UniqueLetters, Words},
     ActiveState, Letter,
 };
 
-use super::Guess;
+use super::Guesser;
 
 // A simple guesser that uses letter frequencies in the current word list to select a letter.
 pub struct FrequencyGuesser {
@@ -18,25 +20,9 @@ impl FrequencyGuesser {
     }
 }
 
-impl Guess for FrequencyGuesser {
+impl Guesser for FrequencyGuesser {
     fn guess(&mut self, state: &ActiveState) -> char {
-        println!("{}", state.guess);
-        println!(
-            "Guesser has {} {} left | Already guessed: {}\n",
-            state.lives,
-            if state.lives == 1 { "try" } else { "tries" },
-            if state.wrong_characters.len() == 0 {
-                String::from("None")
-            } else {
-                state
-                    .wrong_characters
-                    .iter()
-                    .copied()
-                    .map(String::from)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            }
-        );
+        println!("✳️ {} {}", Color::Green.paint(state.lives), state.guess);
 
         self.word_space.filter_with_guess(state);
         let mut frequencies = HashMap::new();
