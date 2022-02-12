@@ -11,7 +11,7 @@ use std::{
     io::{self, Read, Write as _},
 };
 
-const CHARS: &str = "abcdefghijlmnopqrstuvwxyz";
+const CHARS: &str = "abcdefghijklmnopqrstuvwxyz";
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Letter {
@@ -107,7 +107,7 @@ impl<'a> Game<'a> {
                 String::from("This is your first guess, good luck!")
             } else {
                 format!(
-                    "You've already tried guessing {}",
+                    "You've already guessed: {}",
                     self.wrong
                         .iter()
                         .copied()
