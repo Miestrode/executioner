@@ -1,16 +1,10 @@
-use executioner::{
-    game::Game,
-    guesser::Guesser,
-    words::{WordSpace, Words},
-};
+use std::{thread, time::Duration};
+
+use executioner::words::Words;
 
 fn main() {
-    let words = Words::from("./words.txt").expect("Could not create internal word list");
-    let word = words.random_word();
-
-    println!(
-        "The word was {}, you guessed it with {} mistake(s)",
-        word,
-        Game::new(&word).play(Guesser::new(WordSpace::new(&words)))
+    executioner::play_game(
+        Words::from("./words.txt").expect("Could not create internal word list"),
     );
+    thread::sleep(Duration::new(2, 0));
 }

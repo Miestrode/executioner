@@ -1,6 +1,7 @@
 use std::{collections::HashSet, fs, io, path::Path};
 
 use rand::prelude::SliceRandom;
+use rayon::iter::{IntoParallelRefIterator, ParallelDrainRange, ParallelIterator};
 
 use crate::game::ActiveState;
 
@@ -34,7 +35,7 @@ impl<'a> WordSpace<'a> {
 
     pub fn matching_state_portion(&self, state: &ActiveState) -> f32 {
         self.words
-            .iter()
+            .par_iter()
             .filter(|word| state.does_match(word))
             .count() as f32
             / self.words.len() as f32
@@ -43,7 +44,7 @@ impl<'a> WordSpace<'a> {
     pub fn filter_with_guess(&mut self, state: &ActiveState) {
         self.words = self
             .words
-            .drain(..)
+            .par_drain(..)
             .filter(|word| state.does_match(word))
             .collect::<Vec<_>>();
     }

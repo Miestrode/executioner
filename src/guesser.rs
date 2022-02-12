@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use bitvec::{macros::internal::funty::Fundamental, prelude::*};
 
 use crate::{
@@ -22,8 +24,14 @@ impl GuessState {
     }
 }
 
+pub struct CharGuess {
+    pub char: char,
+    pub info: f32,
+}
+
 pub struct Guesser<'a> {
     word_space: WordSpace<'a>,
+    to_guess: HashSet<char>,
 }
 
 fn portion_to_info(portion: f32) -> f32 {
@@ -38,20 +46,31 @@ fn portion_to_info(portion: f32) -> f32 {
 
 impl<'a> Guesser<'a> {
     pub fn new(word_space: WordSpace<'a>) -> Self {
-        Self { word_space }
+        Self {
+            word_space,
+            to_guess: ('a'..='z').collect(),
+        }
     }
 
-    pub fn guess(&mut self, mut state: ActiveState) -> char {
-        self.word_space.filter_with_guess(&state);
-
-        let indices = state.guess.unknown_indices();
-
-        ('a'..='z') // TODO: Use all characters in word list! Not just the english ones!
+    fn filter_guesses(&mut self, state: &ActiveState) {
+        self.to_guess = self
+            .to_guess
+            .drain()
             .filter(|char| {
                 !(state.wrong.contains(char) || state.guess.0.contains(&Letter::Character(*char)))
             })
-            .collect::<Vec<_>>()
-            .into_iter()
+            .collect();
+    }
+
+    pub fn guess(&mut self, mut state: ActiveState) -> CharGuess {
+        self.filter_guesses(&state);
+
+        self.word_space.filter_with_guess(&state);
+        let indices = state.guess.unknown_indices();
+
+        self.to_guess
+            .iter()
+            .copied()
             .map(|char| {
                 let mut info = 0.0; // The amount of mathematical information (in bits).
 
@@ -71,10 +90,9 @@ impl<'a> Guesser<'a> {
                     info += portion * portion_to_info(portion);
                 }
 
-                (char, info)
+                CharGuess { char, info }
             })
-            .max_by(|(_, info_a), (_, info_b)| info_a.partial_cmp(info_b).unwrap())
+            .max_by(|CharGuess { info, .. }, CharGuess { info: other, .. }| info.total_cmp(other))
             .unwrap()
-            .0
     }
 }

@@ -1,9 +1,17 @@
-use crate::guesser::Guesser;
+use crossterm::{
+    cursor, execute,
+    terminal::{Clear, ClearType},
+};
+
+use crate::guesser::{CharGuess, Guesser};
 
 use std::{
     collections::HashSet,
     fmt::{self, Display, Write},
+    io::{self, Read, Write as _},
 };
+
+const CHARS: &str = "abcdefghijlmnopqrstuvwxyz";
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Letter {
@@ -60,27 +68,100 @@ impl<'a> Game<'a> {
     }
 
     // Returns the number of mistakes.
-    pub fn play(&mut self, mut guesser: Guesser) -> usize {
+    pub fn play(&mut self, mut guesser: Guesser) {
+        let mut stdout = io::stdout();
+
         loop {
             match self.game_state() {
                 GameState::Active(state) => {
-                    println!("{} | Mistakes: {:?}", state.guess, self.wrong);
+                    let guess = guesser.guess(state);
 
-                    let character = guesser.guess(state);
-                    self.guess_character(character);
+                    execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
+                        .expect("Failed to clear terminal");
+
+                    self.guess_character(guess);
                 }
-                GameState::Done => break self.wrong.len() as usize,
+                GameState::Done => {
+                    execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
+                        .expect("Failed to clear terminal");
+
+                    println!(
+                        "You win! The word was {}.\nDuring the game, you made {} mistake(s).",
+                        self.word,
+                        self.wrong.len()
+                    );
+
+                    break;
+                }
             }
         }
     }
 
-    fn guess_character(&mut self, character: char) {
-        if self.word.contains(character) {
-            for (index, _) in self.word.match_indices(character) {
-                self.guess_state.0[index] = Letter::Character(character);
+    fn get_guess(&self, suggestion: CharGuess) -> char {
+        let mut stdout = io::stdout();
+
+        println!("╭─· {}", self.guess_state);
+        println!(
+            "· {}",
+            if self.wrong.len() == 0 {
+                String::from("This is your first guess, good luck!")
+            } else {
+                format!(
+                    "You've already tried guessing {}",
+                    self.wrong
+                        .iter()
+                        .copied()
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        );
+        println!(
+            "· The 🤖 thinks you should guess {} (with an expected info of {:.2} bit(s))",
+            suggestion.char, suggestion.info
+        );
+        print!("╰─·Enter a guess·─▶ ");
+        stdout.flush().expect("Could not flush to stdout");
+
+        let cursor = cursor::position().expect("Failed to get cursor position.");
+
+        loop {
+            // Clear previous guess.
+            execute!(
+                stdout,
+                cursor::MoveTo(cursor.0, cursor.1),
+                Clear(ClearType::FromCursorDown)
+            )
+            .expect("Could not clear terminal");
+
+            if let Some(guess) = io::stdin()
+                .bytes()
+                .next()
+                .and_then(|guess| guess.ok())
+                .map(|guess| guess as char)
+                .and_then(|guess| {
+                    if CHARS.contains(guess) {
+                        Some(guess)
+                    } else {
+                        None
+                    }
+                })
+            {
+                break guess;
+            }
+        }
+    }
+
+    fn guess_character(&mut self, suggestion: CharGuess) {
+        let guess = self.get_guess(suggestion);
+
+        if self.word.contains(guess) {
+            for (index, _) in self.word.match_indices(guess) {
+                self.guess_state.0[index] = Letter::Character(guess);
             }
         } else {
-            self.wrong.insert(character);
+            self.wrong.insert(guess);
         }
     }
 
