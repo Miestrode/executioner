@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use bitvec::{macros::internal::funty::Fundamental, prelude::*};
+use rayon::iter::{ParallelDrainFull, ParallelIterator};
 
 use crate::{
     game::{ActiveState, GuessState, Letter},
@@ -31,51 +32,69 @@ pub struct CharGuess {
 
 pub struct Guesser<'a> {
     word_space: WordSpace<'a>,
-    to_guess: HashSet<char>,
+    guesses: HashSet<char>,
 }
 
 fn portion_to_info(portion: f32) -> f32 {
-    if portion == 0.0 {
+    if portion == 0.0 || portion == 1.0 {
         0.0
-    } else if portion == 1.0 {
-        1.0
     } else {
         -portion.log2()
     }
+}
+
+fn expected_info(portion: f32) -> f32 {
+    portion * portion_to_info(portion)
 }
 
 impl<'a> Guesser<'a> {
     pub fn new(word_space: WordSpace<'a>) -> Self {
         Self {
             word_space,
-            to_guess: ('a'..='z').collect(),
+            guesses: ('a'..='z').collect(),
         }
     }
 
     fn filter_guesses(&mut self, state: &ActiveState) {
-        self.to_guess = self
-            .to_guess
-            .drain()
-            .filter(|char| {
-                !(state.wrong.contains(char) || state.guess.0.contains(&Letter::Character(*char)))
-            })
-            .collect();
+        let drained_guesses = self.guesses.par_drain();
+
+        self.guesses = if self.word_space.words.len() == 1 {
+            let word = self.word_space.words[0];
+
+            drained_guesses
+                .filter(|char| {
+                    word.contains(*char) && !state.guess.0.contains(&Letter::Character(*char))
+                })
+                .collect()
+        } else {
+            drained_guesses
+                .filter(|char| {
+                    !(state.wrong.0.contains(char)
+                        || state.guess.0.contains(&Letter::Character(*char)))
+                })
+                .collect()
+        };
     }
 
     pub fn guess(&mut self, mut state: ActiveState) -> CharGuess {
+        self.word_space.filter_with_guess(&state);
         self.filter_guesses(&state);
 
-        self.word_space.filter_with_guess(&state);
         let indices = state.guess.unknown_indices();
 
-        self.to_guess
+        self.guesses
             .iter()
             .copied()
             .map(|char| {
-                let mut info = 0.0; // The amount of mathematical information (in bits).
+                // There's always a case where you found no matches with a guess,
+                // in that case we can add the character into the "wrong guesses" set and calculate the expected information.
+                state.wrong.0.insert(char);
+                let mut info = expected_info(self.word_space.matching_state_portion(&state)); // The amount of mathematical information (in bits).
+                state.wrong.0.remove(&char);
 
-                //I use binary numbers to save the pain of writing an actual permutation function that would be 10 times slower.
-                for permutation in 0..(2u32.pow(indices.len() as u32)) {
+                // This code will just update the expected information for each permutation.
+                // I use binary numbers to save the pain of writing an actual permutation function that would be 10 times slower.
+                for permutation in 1..(2u32.pow(indices.len() as u32)) {
                     let bits = permutation.view_bits::<Lsb0>();
 
                     indices.iter().zip(bits).for_each(|(other, bit)| {
@@ -86,8 +105,7 @@ impl<'a> Guesser<'a> {
                         }
                     });
 
-                    let portion = self.word_space.matching_state_portion(&state);
-                    info += portion * portion_to_info(portion);
+                    info += expected_info(self.word_space.matching_state_portion(&state))
                 }
 
                 CharGuess { char, info }

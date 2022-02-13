@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, io, path::Path};
+use std::{fs, io, path::Path};
 
 use rand::prelude::SliceRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelDrainRange, ParallelIterator};
@@ -33,7 +33,7 @@ impl<'a> WordSpace<'a> {
         }
     }
 
-    pub fn matching_state_portion(&self, state: &ActiveState) -> f32 {
+    pub fn matching_state_portion(&'a self, state: &ActiveState) -> f32 {
         self.words
             .par_iter()
             .filter(|word| state.does_match(word))
@@ -47,21 +47,5 @@ impl<'a> WordSpace<'a> {
             .par_drain(..)
             .filter(|word| state.does_match(word))
             .collect::<Vec<_>>();
-    }
-}
-
-pub trait UniqueLetters {
-    fn unique_letters(&self) -> HashSet<char>;
-}
-
-impl UniqueLetters for String {
-    fn unique_letters(&self) -> HashSet<char> {
-        let mut letters = HashSet::new();
-
-        for character in self.chars() {
-            letters.insert(character);
-        }
-
-        letters
     }
 }

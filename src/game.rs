@@ -1,5 +1,6 @@
 use crossterm::{
     cursor, execute,
+    style::Stylize,
     terminal::{Clear, ClearType},
 };
 
@@ -10,8 +11,6 @@ use std::{
     fmt::{self, Display, Write},
     io::{self, Read, Write as _},
 };
-
-const CHARS: &str = "abcdefghijklmnopqrstuvwxyz";
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Letter {
@@ -27,10 +26,19 @@ impl ActiveState {
         if self.guess.0.len() != word.len() {
             false
         } else {
+            let mut unique_letters = HashSet::new();
+
+            for char in word.chars() {
+                unique_letters.insert(char);
+            }
+
             for (char, letter) in word.chars().zip(self.guess.0.iter().copied()) {
-                if self.wrong.contains(&char) {
+                if self.wrong.0.contains(&char) {
                     return false;
-                } else if letter != Letter::Character(char) && letter != Letter::Unknown {
+                } else if letter != Letter::Character(char) // If the letter doesn't match what's in the word, the match failed...
+                // However! It could be unknown, in which case we make sure the letter is actually unique.
+                    && (letter != Letter::Unknown || !unique_letters.contains(&char))
+                {
                     return false;
                 }
             }
@@ -41,9 +49,41 @@ impl ActiveState {
 }
 
 #[derive(Clone)]
+pub struct WrongGuesses(pub HashSet<char>);
+
+impl WrongGuesses {
+    pub fn new() -> Self {
+        Self(HashSet::new())
+    }
+}
+
+impl Display for WrongGuesses {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        assert_ne!(self.0.len(), 0);
+        let wrong_guesses = self
+            .0
+            .iter()
+            .copied()
+            .map(|char| char.yellow().bold().to_string())
+            .collect::<Vec<_>>();
+
+        f.write_str(&wrong_guesses[..wrong_guesses.len() - 1].as_ref().join(", "))?;
+
+        // If the length is 1, nothing was written previously.
+        if wrong_guesses.len() != 1 {
+            f.write_str(" and ")?;
+        }
+
+        f.write_str(wrong_guesses.last().unwrap())?;
+
+        fmt::Result::Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct ActiveState {
     pub guess: GuessState,
-    pub wrong: HashSet<char>,
+    pub wrong: WrongGuesses,
 }
 
 #[derive(Clone)]
@@ -55,7 +95,7 @@ enum GameState {
 pub struct Game<'a> {
     word: &'a str,
     guess_state: GuessState,
-    wrong: HashSet<char>,
+    wrong: WrongGuesses,
 }
 
 impl<'a> Game<'a> {
@@ -63,8 +103,35 @@ impl<'a> Game<'a> {
         Self {
             guess_state: GuessState(vec![Letter::Unknown; word.len()]),
             word,
-            wrong: HashSet::new(),
+            wrong: WrongGuesses::new(),
         }
+    }
+
+    fn write_prompt(&self, suggestion: CharGuess) {
+        println!(
+            "{}",
+            self.guess_state.to_string().bold().underlined().yellow()
+        );
+        println!(
+            "\n{}",
+            if self.wrong.0.len() == 0 {
+                String::from("You have not made any mistakes.")
+            } else {
+                format!(
+                    "You've already mistakenly guessed {}.",
+                    self.wrong.to_string()
+                )
+            }
+        );
+        println!(
+            "The algorithm suggests you should guess {} since it has an expected information of \
+             {} bit{}.",
+            suggestion.char.yellow(),
+            format!("{:.2}", suggestion.info).yellow(),
+            if suggestion.info != 1.0 { "s" } else { "" }
+        );
+        print!("\nEnter a guess {} ", "─▶".yellow());
+        io::stdout().flush().expect("Could not flush to stdout");
     }
 
     // Returns the number of mistakes.
@@ -87,8 +154,8 @@ impl<'a> Game<'a> {
 
                     println!(
                         "You win! The word was {}.\nDuring the game, you made {} mistake(s).",
-                        self.word,
-                        self.wrong.len()
+                        self.word.yellow().bold(),
+                        self.wrong.0.len().to_string().yellow().bold()
                     );
 
                     break;
@@ -100,29 +167,7 @@ impl<'a> Game<'a> {
     fn get_guess(&self, suggestion: CharGuess) -> char {
         let mut stdout = io::stdout();
 
-        println!("╭─· {}", self.guess_state);
-        println!(
-            "· {}",
-            if self.wrong.len() == 0 {
-                String::from("This is your first guess, good luck!")
-            } else {
-                format!(
-                    "You've already guessed: {}",
-                    self.wrong
-                        .iter()
-                        .copied()
-                        .map(String::from)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            }
-        );
-        println!(
-            "· The 🤖 thinks you should guess {} (with an expected info of {:.2} bit(s))",
-            suggestion.char, suggestion.info
-        );
-        print!("╰─·Enter a guess·─▶ ");
-        stdout.flush().expect("Could not flush to stdout");
+        self.write_prompt(suggestion);
 
         let cursor = cursor::position().expect("Failed to get cursor position.");
 
@@ -141,7 +186,7 @@ impl<'a> Game<'a> {
                 .and_then(|guess| guess.ok())
                 .map(|guess| guess as char)
                 .and_then(|guess| {
-                    if CHARS.contains(guess) {
+                    if !guess.is_whitespace() {
                         Some(guess)
                     } else {
                         None
@@ -161,7 +206,7 @@ impl<'a> Game<'a> {
                 self.guess_state.0[index] = Letter::Character(guess);
             }
         } else {
-            self.wrong.insert(guess);
+            self.wrong.0.insert(guess);
         }
     }
 
@@ -183,7 +228,7 @@ impl Display for GuessState {
             f.write_char(if let Letter::Character(char) = letter {
                 char
             } else {
-                '_'
+                ' '
             })?;
         }
 
