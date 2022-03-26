@@ -117,10 +117,7 @@ impl<'a> Game<'a> {
             if self.wrong.0.len() == 0 {
                 String::from("You have not made any mistakes.")
             } else {
-                format!(
-                    "You've already mistakenly guessed {}.",
-                    self.wrong.to_string()
-                )
+                format!("You've mistakenly guessed {}.", self.wrong.to_string())
             }
         );
         println!(

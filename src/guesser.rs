@@ -32,11 +32,11 @@ pub struct CharGuess {
 
 pub struct Guesser<'a> {
     word_space: WordSpace<'a>,
-    guesses: HashSet<char>,
+    possible_guesses: HashSet<char>,
 }
 
 fn portion_to_info(portion: f32) -> f32 {
-    if portion == 0.0 || portion == 1.0 {
+    if portion == 0.0 {
         0.0
     } else {
         -portion.log2()
@@ -48,17 +48,17 @@ fn expected_info(portion: f32) -> f32 {
 }
 
 impl<'a> Guesser<'a> {
-    pub fn new(word_space: WordSpace<'a>) -> Self {
+    pub fn new(word_space: WordSpace<'a>, possible_guesses: HashSet<char>) -> Self {
         Self {
             word_space,
-            guesses: ('a'..='z').collect(),
+            possible_guesses: possible_guesses,
         }
     }
 
     fn filter_guesses(&mut self, state: &ActiveState) {
-        let drained_guesses = self.guesses.par_drain();
+        let drained_guesses = self.possible_guesses.par_drain();
 
-        self.guesses = if self.word_space.words.len() == 1 {
+        self.possible_guesses = if self.word_space.words.len() == 1 {
             let word = self.word_space.words[0];
 
             drained_guesses
@@ -82,7 +82,7 @@ impl<'a> Guesser<'a> {
 
         let indices = state.guess.unknown_indices();
 
-        self.guesses
+        self.possible_guesses
             .iter()
             .copied()
             .map(|char| {

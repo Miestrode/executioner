@@ -10,3 +10,4 @@ rand = "0.8.4"
 bitvec = "1.0.0"
 rayon = "1.5.1"
 crossterm = "0.23.0"
+clap = { version = "3.1.6", features = ["derive"] }
