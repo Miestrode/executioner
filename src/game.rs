@@ -4,12 +4,13 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 
-use crate::guesser::{CharGuess, Guesser};
+use crate::guesser::{Guess, Guesser};
 
 use std::{
     collections::HashSet,
     fmt::{self, Display, Write},
-    io::{self, Read, Write as _},
+    io::{self, Write as _},
+    iter,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -20,6 +21,12 @@ pub enum Letter {
 
 #[derive(Clone)]
 pub struct GuessState(pub Vec<Letter>);
+
+impl GuessState {
+    pub fn new(length: usize) -> Self {
+        Self(iter::repeat(Letter::Unknown).take(length).collect())
+    }
+}
 
 impl ActiveState {
     pub fn does_match(&self, word: &str) -> bool {
@@ -87,73 +94,64 @@ pub struct ActiveState {
 }
 
 #[derive(Clone)]
-enum GameState {
+pub enum GameState {
     Active(ActiveState),
     Done,
 }
 
-pub struct Game<'a> {
-    word: &'a str,
-    guess_state: GuessState,
-    wrong: WrongGuesses,
-}
-
-impl<'a> Game<'a> {
-    pub fn new(word: &'a str) -> Self {
-        Self {
-            guess_state: GuessState(vec![Letter::Unknown; word.len()]),
-            word,
-            wrong: WrongGuesses::new(),
-        }
-    }
-
-    fn write_prompt(&self, suggestion: CharGuess) {
+pub trait Game {
+    fn write_prompt<'a>(&self, char: char, info: f32) {
+        execute!(io::stdout(), cursor::MoveTo(0, 0), Clear(ClearType::All))
+            .expect("Failed to clear terminal");
         println!(
             "{}",
-            self.guess_state.to_string().bold().underlined().yellow()
+            self.guess_state().to_string().bold().underlined().yellow()
         );
         println!(
             "\n{}",
-            if self.wrong.0.len() == 0 {
+            if self.wrong().0.len() == 0 {
                 String::from("You have not made any mistakes.")
             } else {
-                format!("You've mistakenly guessed {}.", self.wrong.to_string())
+                format!("You've mistakenly guessed {}.", self.wrong().to_string())
             }
         );
         println!(
             "The algorithm suggests you should guess {} since it has an expected information of \
              {} bit{}.",
-            suggestion.char.yellow(),
-            format!("{:.2}", suggestion.info).yellow(),
-            if suggestion.info != 1.0 { "s" } else { "" }
+            char.yellow(),
+            format!("{:.2}", info).yellow(),
+            if info != 1.0 { "s" } else { "" }
         );
         print!("\nEnter a guess {} ", "─▶".yellow());
         io::stdout().flush().expect("Could not flush to stdout");
     }
 
-    // Returns the number of mistakes.
-    pub fn play(&mut self, mut guesser: Guesser) {
+    fn play(&mut self, mut guesser: Guesser) {
         let mut stdout = io::stdout();
 
+        execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
+            .expect("Failed to clear terminal");
         loop {
-            match self.game_state() {
-                GameState::Active(state) => {
-                    let guess = guesser.guess(state);
+            let guess = guesser.guess(ActiveState {
+                guess: self.guess_state().clone(),
+                wrong: self.wrong().clone(),
+            });
 
-                    execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
-                        .expect("Failed to clear terminal");
-
-                    self.guess_character(guess);
+            match guess {
+                Guess::Char { char, info } => {
+                    self.guess_character(char, info);
                 }
-                GameState::Done => {
-                    execute!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))
-                        .expect("Failed to clear terminal");
-
+                Guess::Word(word) => {
                     println!(
                         "You win! The word was {}.\nDuring the game, you made {} mistake(s).",
-                        self.word.yellow().bold(),
-                        self.wrong.0.len().to_string().yellow().bold()
+                        word.yellow().bold(),
+                        self.wrong().0.len().to_string().yellow().bold()
                     );
+
+                    break;
+                }
+                Guess::Unknown => {
+                    println!("This word is not in the database, and so could not be guessed.");
 
                     break;
                 }
@@ -161,10 +159,10 @@ impl<'a> Game<'a> {
         }
     }
 
-    fn get_guess(&self, suggestion: CharGuess) -> char {
+    fn get_guess(&self, char: char, info: f32) -> char {
         let mut stdout = io::stdout();
 
-        self.write_prompt(suggestion);
+        self.write_prompt(char, info);
 
         let cursor = cursor::position().expect("Failed to get cursor position.");
 
@@ -177,45 +175,177 @@ impl<'a> Game<'a> {
             )
             .expect("Could not clear terminal");
 
-            if let Some(guess) = io::stdin()
-                .bytes()
-                .next()
-                .and_then(|guess| guess.ok())
-                .map(|guess| guess as char)
-                .and_then(|guess| {
-                    if !guess.is_whitespace() {
-                        Some(guess)
-                    } else {
-                        None
-                    }
-                })
-            {
-                break guess;
+            let mut buffer = String::new();
+            io::stdin()
+                .read_line(&mut buffer)
+                .expect("Could not read line");
+
+            if let Some(input) = buffer.trim().chars().next() {
+                break input;
             }
         }
     }
 
-    fn guess_character(&mut self, suggestion: CharGuess) {
-        let guess = self.get_guess(suggestion);
+    fn guess_character(&mut self, char: char, info: f32) {
+        let guess = self.get_guess(char, info);
 
-        if self.word.contains(guess) {
-            for (index, _) in self.word.match_indices(guess) {
-                self.guess_state.0[index] = Letter::Character(guess);
+        if self.word_contains(guess) {
+            for index in self.get_guess_indices(guess) {
+                self.mut_guess_state().0[index] = Letter::Character(guess);
             }
         } else {
-            self.wrong.0.insert(guess);
+            self.mut_wrong().0.insert(guess);
         }
     }
 
-    fn game_state(&mut self) -> GameState {
-        if !self.guess_state.0.contains(&Letter::Unknown) {
+    fn game_state(&self) -> GameState {
+        if !self.guess_state().0.contains(&Letter::Unknown) {
             GameState::Done
         } else {
             GameState::Active(ActiveState {
-                guess: self.guess_state.clone(),
-                wrong: self.wrong.clone(),
+                guess: self.guess_state().clone(),
+                wrong: self.wrong().clone(),
             })
         }
+    }
+
+    fn word_contains(&self, guess: char) -> bool;
+
+    fn get_guess_indices(&self, guess: char) -> Vec<usize>;
+
+    fn guess_state(&self) -> &GuessState;
+
+    fn wrong(&self) -> &WrongGuesses;
+
+    fn mut_guess_state(&mut self) -> &mut GuessState;
+
+    fn mut_wrong(&mut self) -> &mut WrongGuesses;
+}
+
+pub struct FullGame<'a> {
+    word: &'a str,
+    guess_state: GuessState,
+    wrong: WrongGuesses,
+}
+
+impl<'a> FullGame<'a> {
+    pub fn new(word: &'a str) -> Self {
+        Self {
+            guess_state: GuessState(vec![Letter::Unknown; word.len()]),
+            word,
+            wrong: WrongGuesses::new(),
+        }
+    }
+}
+
+impl<'a> Game for FullGame<'a> {
+    fn word_contains(&self, guess: char) -> bool {
+        self.word.contains(guess)
+    }
+
+    fn get_guess_indices(&self, guess: char) -> Vec<usize> {
+        self.word
+            .match_indices(guess)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    fn guess_state(&self) -> &GuessState {
+        &self.guess_state
+    }
+
+    fn wrong(&self) -> &WrongGuesses {
+        &self.wrong
+    }
+
+    fn mut_guess_state(&mut self) -> &mut GuessState {
+        &mut self.guess_state
+    }
+
+    fn mut_wrong(&mut self) -> &mut WrongGuesses {
+        &mut self.wrong
+    }
+}
+
+pub struct PartialGame {
+    guess_state: GuessState,
+    wrong: WrongGuesses,
+    length: usize,
+}
+
+impl PartialGame {
+    pub fn new(length: usize) -> Self {
+        Self {
+            guess_state: GuessState::new(length),
+            wrong: WrongGuesses::new(),
+            length,
+        }
+    }
+}
+
+impl Game for PartialGame {
+    fn word_contains(&self, guess: char) -> bool {
+        loop {
+            print!("Does the word contain {guess}? (y/n) ");
+            io::stdout()
+                .flush()
+                .expect("Could not flush to standard output");
+
+            let mut buffer = String::new();
+            io::stdin()
+                .read_line(&mut buffer)
+                .expect("Could not read line");
+
+            break match buffer.as_str().trim() {
+                "y" => true,
+                "n" => false,
+                _ => continue,
+            };
+        }
+    }
+
+    fn get_guess_indices(&self, _: char) -> Vec<usize> {
+        let mut indices = vec![];
+
+        loop {
+            print!("A guess letter index in the word: ");
+            io::stdout()
+                .flush()
+                .expect("Could not flush to standard output");
+
+            let mut buffer = String::new();
+            io::stdin()
+                .read_line(&mut buffer)
+                .expect("Could not read line");
+
+            if buffer == "\n" {
+                break indices;
+            } else if let Some(index) = buffer.trim().parse().ok().and_then(|number| {
+                if number < self.length && !indices.contains(&number) {
+                    Some(number)
+                } else {
+                    None
+                }
+            }) {
+                indices.push(index);
+            }
+        }
+    }
+
+    fn guess_state(&self) -> &GuessState {
+        &self.guess_state
+    }
+
+    fn wrong(&self) -> &WrongGuesses {
+        &self.wrong
+    }
+
+    fn mut_guess_state(&mut self) -> &mut GuessState {
+        &mut self.guess_state
+    }
+
+    fn mut_wrong(&mut self) -> &mut WrongGuesses {
+        &mut self.wrong
     }
 }
 

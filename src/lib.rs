@@ -1,7 +1,6 @@
-#![feature(total_cmp)]
-
 use std::{collections::HashSet, ffi::OsStr, fs, io, thread, time::Duration};
 
+use game::{FullGame, PartialGame};
 use rayon::{iter::FromParallelIterator, str::ParallelString};
 use words::Words;
 
@@ -34,43 +33,68 @@ struct Args {
     word: Option<String>,
     #[clap(short, long, parse(try_from_os_str = path_to_word_list))]
     words: Words,
+    #[clap(short, long)]
+    length: Option<usize>,
 }
 
-struct GameData {
-    word: String,
-    words: Words,
-    unique_chars: HashSet<char>,
+enum GameData {
+    Full {
+        word: String,
+        words: Words,
+        unique_chars: HashSet<char>,
+    },
+    Partial {
+        words: Words,
+        unique_chars: HashSet<char>,
+        length: usize,
+    },
 }
 
 impl From<Args> for GameData {
     fn from(args: Args) -> Self {
         let mut words = args.words;
+        let unique_chars = HashSet::from_par_iter(words.words.join("").par_chars());
 
-        let word = match args.word {
-            Some(word) => {
-                if !words.words.contains(&word) {
-                    words.words.push(word.clone());
-                };
-
-                word
+        if let Some(length) = args.length {
+            Self::Partial {
+                words,
+                unique_chars,
+                length,
             }
-            None => words.random_word(),
-        };
+        } else {
+            let word = match args.word {
+                Some(word) => {
+                    if !words.words.contains(&word) {
+                        words.words.push(word.clone());
+                    };
 
-        Self {
-            // Generally, the only characters used will be A to Z, however that isn't always the case! We have to be sure.
-            unique_chars: HashSet::from_par_iter(words.words.join("").par_chars()),
-            word,
-            words,
+                    word
+                }
+                None => words.random_word(),
+            };
+            Self::Full {
+                // Generally, the only characters used will be A to Z, however that isn't always the case! We have to be sure.
+                unique_chars: HashSet::from_par_iter(words.words.join("").par_chars()),
+                word,
+                words,
+            }
         }
     }
 }
 
 fn play_game(game_data: GameData) {
-    Game::new(&game_data.word).play(Guesser::new(
-        WordSpace::new(&game_data.words),
-        game_data.unique_chars,
-    ));
+    match game_data {
+        GameData::Full {
+            word,
+            words,
+            unique_chars,
+        } => FullGame::new(&word).play(Guesser::new(WordSpace::new(&words), unique_chars)),
+        GameData::Partial {
+            length,
+            unique_chars,
+            words,
+        } => PartialGame::new(length).play(Guesser::new(WordSpace::new(&words), unique_chars)),
+    }
 }
 
 // Returns true if the game ran successfully, otherwise returns false.

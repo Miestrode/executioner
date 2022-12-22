@@ -25,9 +25,10 @@ impl GuessState {
     }
 }
 
-pub struct CharGuess {
-    pub char: char,
-    pub info: f32,
+pub enum Guess<'a> {
+    Char { char: char, info: f32 },
+    Word(&'a str),
+    Unknown,
 }
 
 pub struct Guesser<'a> {
@@ -51,66 +52,64 @@ impl<'a> Guesser<'a> {
     pub fn new(word_space: WordSpace<'a>, possible_guesses: HashSet<char>) -> Self {
         Self {
             word_space,
-            possible_guesses: possible_guesses,
+            possible_guesses,
         }
     }
 
     fn filter_guesses(&mut self, state: &ActiveState) {
         let drained_guesses = self.possible_guesses.par_drain();
 
-        self.possible_guesses = if self.word_space.words.len() == 1 {
-            let word = self.word_space.words[0];
-
-            drained_guesses
-                .filter(|char| {
-                    word.contains(*char) && !state.guess.0.contains(&Letter::Character(*char))
-                })
-                .collect()
-        } else {
-            drained_guesses
-                .filter(|char| {
-                    !(state.wrong.0.contains(char)
-                        || state.guess.0.contains(&Letter::Character(*char)))
-                })
-                .collect()
-        };
+        self.possible_guesses = drained_guesses
+            .filter(|char| {
+                !(state.wrong.0.contains(char) || state.guess.0.contains(&Letter::Character(*char)))
+            })
+            .collect();
     }
 
-    pub fn guess(&mut self, mut state: ActiveState) -> CharGuess {
+    pub fn guess(&mut self, mut state: ActiveState) -> Guess {
         self.word_space.filter_with_guess(&state);
-        self.filter_guesses(&state);
 
-        let indices = state.guess.unknown_indices();
+        match self.word_space.words.len() {
+            0 => Guess::Unknown,
+            1 => Guess::Word(self.word_space.words[0]),
+            _ => {
+                self.filter_guesses(&state);
+                let indices = state.guess.unknown_indices();
 
-        self.possible_guesses
-            .iter()
-            .copied()
-            .map(|char| {
-                // There's always a case where you found no matches with a guess,
-                // in that case we can add the character into the "wrong guesses" set and calculate the expected information.
-                state.wrong.0.insert(char);
-                let mut info = expected_info(self.word_space.matching_state_portion(&state)); // The amount of mathematical information (in bits).
-                state.wrong.0.remove(&char);
+                let (char, info) = self
+                    .possible_guesses
+                    .iter()
+                    .copied()
+                    .map(|char| {
+                        // There's always a case where you found no matches with a guess,
+                        // in that case we can add the character into the "wrong guesses" set and calculate the expected information.
+                        state.wrong.0.insert(char);
+                        let mut info =
+                            expected_info(self.word_space.matching_state_portion(&state)); // The amount of mathematical information (in bits).
+                        state.wrong.0.remove(&char);
 
-                // This code will just update the expected information for each permutation.
-                // I use binary numbers to save the pain of writing an actual permutation function that would be 10 times slower.
-                for permutation in 1..(2u32.pow(indices.len() as u32)) {
-                    let bits = permutation.view_bits::<Lsb0>();
+                        // This code will just update the expected information for each permutation.
+                        // I use binary numbers to save the pain of writing an actual permutation function that would be 10 times slower.
+                        for permutation in 1..(2u32.pow(indices.len() as u32)) {
+                            let bits = permutation.view_bits::<Lsb0>();
 
-                    indices.iter().zip(bits).for_each(|(other, bit)| {
-                        state.guess.0[*other] = if bit.as_bool() {
-                            Letter::Character(char)
-                        } else {
-                            Letter::Unknown
+                            indices.iter().zip(bits).for_each(|(other, bit)| {
+                                state.guess.0[*other] = if bit.as_bool() {
+                                    Letter::Character(char)
+                                } else {
+                                    Letter::Unknown
+                                }
+                            });
+
+                            info += expected_info(self.word_space.matching_state_portion(&state))
                         }
-                    });
 
-                    info += expected_info(self.word_space.matching_state_portion(&state))
-                }
-
-                CharGuess { char, info }
-            })
-            .max_by(|CharGuess { info, .. }, CharGuess { info: other, .. }| info.total_cmp(other))
-            .unwrap()
+                        (char, info)
+                    })
+                    .max_by(|(_, info), (_, other)| info.total_cmp(other))
+                    .unwrap();
+                Guess::Char { char, info }
+            }
+        }
     }
 }
