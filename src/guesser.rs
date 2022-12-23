@@ -9,7 +9,7 @@ use crate::{
 };
 
 impl GuessState {
-    fn unknown_indices(&mut self) -> Vec<usize> {
+    pub fn unknown_indices(&self) -> Vec<usize> {
         self.0
             .iter()
             .copied()

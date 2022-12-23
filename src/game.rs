@@ -1,10 +1,14 @@
+use bitvec::prelude::*;
 use crossterm::{
     cursor, execute,
     style::Stylize,
     terminal::{Clear, ClearType},
 };
 
-use crate::guesser::{Guess, Guesser};
+use crate::{
+    guesser::{Guess, Guesser},
+    words::WordSpace,
+};
 
 use std::{
     collections::HashSet,
@@ -152,7 +156,7 @@ pub trait Game {
                 }
                 Guess::Unknown => {
                     println!("This word is not in the database, and so could not be guessed.");
-
+                    println!("{}", self.guess_state());
                     break;
                 }
             }
@@ -189,8 +193,10 @@ pub trait Game {
     fn guess_character(&mut self, char: char, info: f32) {
         let guess = self.get_guess(char, info);
 
-        if self.word_contains(guess) {
-            for index in self.get_guess_indices(guess) {
+        let guess_indicies = self.get_guess_indices(guess);
+
+        if !guess_indicies.is_empty() {
+            for index in guess_indicies {
                 self.mut_guess_state().0[index] = Letter::Character(guess);
             }
         } else {
@@ -208,8 +214,6 @@ pub trait Game {
             })
         }
     }
-
-    fn word_contains(&self, guess: char) -> bool;
 
     fn get_guess_indices(&self, guess: char) -> Vec<usize>;
 
@@ -239,10 +243,6 @@ impl<'a> FullGame<'a> {
 }
 
 impl<'a> Game for FullGame<'a> {
-    fn word_contains(&self, guess: char) -> bool {
-        self.word.contains(guess)
-    }
-
     fn get_guess_indices(&self, guess: char) -> Vec<usize> {
         self.word
             .match_indices(guess)
@@ -284,26 +284,6 @@ impl PartialGame {
 }
 
 impl Game for PartialGame {
-    fn word_contains(&self, guess: char) -> bool {
-        loop {
-            print!("Does the word contain {guess}? (y/n) ");
-            io::stdout()
-                .flush()
-                .expect("Could not flush to standard output");
-
-            let mut buffer = String::new();
-            io::stdin()
-                .read_line(&mut buffer)
-                .expect("Could not read line");
-
-            break match buffer.as_str().trim() {
-                "y" => true,
-                "n" => false,
-                _ => continue,
-            };
-        }
-    }
-
     fn get_guess_indices(&self, _: char) -> Vec<usize> {
         let mut indices = vec![];
 
@@ -330,6 +310,73 @@ impl Game for PartialGame {
                 indices.push(index);
             }
         }
+    }
+
+    fn guess_state(&self) -> &GuessState {
+        &self.guess_state
+    }
+
+    fn wrong(&self) -> &WrongGuesses {
+        &self.wrong
+    }
+
+    fn mut_guess_state(&mut self) -> &mut GuessState {
+        &mut self.guess_state
+    }
+
+    fn mut_wrong(&mut self) -> &mut WrongGuesses {
+        &mut self.wrong
+    }
+}
+
+pub struct AntagonisticGame<'a> {
+    word_space: WordSpace<'a>,
+    guess_state: GuessState,
+    wrong: WrongGuesses,
+}
+
+impl<'a> AntagonisticGame<'a> {
+    pub fn new(length: usize, word_space: WordSpace<'a>) -> Self {
+        Self {
+            word_space,
+            guess_state: GuessState::new(length),
+            wrong: WrongGuesses::new(),
+        }
+    }
+}
+
+impl Game for AntagonisticGame<'_> {
+    fn get_guess_indices(&self, guess: char) -> Vec<usize> {
+        let indices = self.guess_state.unknown_indices();
+
+        let permutation = (0..(1 << indices.len()))
+            .map(|permutation: u32| {
+                let bits = permutation.view_bits::<Lsb0>();
+
+                let mut guess_state = self.guess_state.clone();
+
+                for (index, bit) in indices.iter().zip(bits.iter().by_ref()) {
+                    if *bit {
+                        guess_state.0[*index] = Letter::Character(guess);
+                    }
+                }
+                (
+                    permutation,
+                    self.word_space.matching_state_count(&ActiveState {
+                        guess: guess_state,
+                        wrong: self.wrong.clone(),
+                    }),
+                )
+            })
+            .max_by(|(_, a), (_, b)| a.cmp(b))
+            .unwrap()
+            .0;
+
+        indices
+            .into_iter()
+            .zip(permutation.view_bits::<Lsb0>().iter().by_refs())
+            .filter_map(|(index, bit)| if *bit { Some(index) } else { None })
+            .collect()
     }
 
     fn guess_state(&self) -> &GuessState {

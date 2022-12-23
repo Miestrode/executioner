@@ -1,6 +1,6 @@
 use std::{collections::HashSet, ffi::OsStr, fs, io, thread, time::Duration};
 
-use game::{FullGame, PartialGame};
+use game::{AntagonisticGame, FullGame, PartialGame};
 use rayon::{iter::FromParallelIterator, str::ParallelString};
 use words::Words;
 
@@ -21,7 +21,7 @@ fn path_to_word_list(path: &OsStr) -> io::Result<Words> {
 }
 
 #[derive(Parser)]
-#[clap(author = "Yoav")]
+#[clap(author = "Yoav Grimland")]
 #[clap(version = "0.5.0")]
 #[clap(about = "A program that plays Hang-man very well.")]
 #[clap(
@@ -30,11 +30,14 @@ fn path_to_word_list(path: &OsStr) -> io::Result<Words> {
                   work with an arbitrary list of words, using arbitrary characters."
 )]
 struct Args {
+    // TODO: Make this option conflict with the antagonistic and length options
     word: Option<String>,
     #[clap(short, long, parse(try_from_os_str = path_to_word_list))]
     words: Words,
     #[clap(short, long)]
     length: Option<usize>,
+    #[clap(short, long, requires("length"))]
+    antagonistic: bool,
 }
 
 enum GameData {
@@ -48,6 +51,11 @@ enum GameData {
         unique_chars: HashSet<char>,
         length: usize,
     },
+    Antagonistic {
+        words: Words,
+        unique_chars: HashSet<char>,
+        length: usize,
+    },
 }
 
 impl From<Args> for GameData {
@@ -56,10 +64,18 @@ impl From<Args> for GameData {
         let unique_chars = HashSet::from_par_iter(words.words.join("").par_chars());
 
         if let Some(length) = args.length {
-            Self::Partial {
-                words,
-                unique_chars,
-                length,
+            if args.antagonistic {
+                Self::Antagonistic {
+                    words,
+                    unique_chars,
+                    length,
+                }
+            } else {
+                Self::Partial {
+                    words,
+                    unique_chars,
+                    length,
+                }
             }
         } else {
             let word = match args.word {
@@ -94,6 +110,16 @@ fn play_game(game_data: GameData) {
             unique_chars,
             words,
         } => PartialGame::new(length).play(Guesser::new(WordSpace::new(&words), unique_chars)),
+        GameData::Antagonistic {
+            words,
+            unique_chars,
+            length,
+        } => {
+            let word_space = WordSpace::new(&words);
+
+            AntagonisticGame::new(length, word_space.clone())
+                .play(Guesser::new(word_space, unique_chars))
+        }
     }
 }
 

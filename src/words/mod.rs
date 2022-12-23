@@ -22,6 +22,7 @@ impl Words {
     }
 }
 
+#[derive(Clone)]
 pub struct WordSpace<'a> {
     pub words: Vec<&'a String>,
 }
@@ -32,13 +33,14 @@ impl<'a> WordSpace<'a> {
             words: words.words.iter().collect(),
         }
     }
-
-    pub fn matching_state_portion(&'a self, state: &ActiveState) -> f32 {
+    pub fn matching_state_count(&'a self, state: &ActiveState) -> usize {
         self.words
             .par_iter()
             .filter(|word| state.does_match(word))
-            .count() as f32
-            / self.words.len() as f32
+            .count()
+    }
+    pub fn matching_state_portion(&'a self, state: &ActiveState) -> f32 {
+        self.matching_state_count(state) as f32 / self.words.len() as f32
     }
 
     pub fn filter_with_guess(&mut self, state: &ActiveState) {
